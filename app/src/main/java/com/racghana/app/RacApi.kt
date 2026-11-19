@@ -112,6 +112,19 @@ object RacApi {
         }
         return ""
     }
+    fun detailObject(result: ApiResult): JSONObject? {
+        var current = result.json()
+        repeat(5) {
+            val direct = listOf("data", "result", "car", "service", "item", "detail").firstNotNullOfOrNull { key ->
+                current.optJSONObject(key)
+            }
+            if (direct != null) current = direct else return current.takeIf {
+                it.has("id") || it.has("title") || it.has("name") || it.has("description") || it.has("content")
+            }
+        }
+        return current
+    }
+
     fun unwrap(result: ApiResult): JSONObject {
         val root = result.json()
         return root.optJSONObject("data") ?: root.optJSONObject("result") ?: root
