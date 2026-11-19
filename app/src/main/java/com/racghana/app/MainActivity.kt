@@ -162,7 +162,7 @@ fun CarDetails(car:Car,onBack:()->Unit,onBook:()->Unit,modifier:Modifier=Modifie
             Box(Modifier.fillMaxWidth().height(210.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE7ECEF)),contentAlignment=Alignment.Center){Icon(Icons.Default.DirectionsCar,null,tint=Color.Gray,modifier=Modifier.size(90.dp))}
             Spacer(Modifier.height(18.dp));Text(car.name,fontSize=25.sp,fontWeight=FontWeight.Bold,color=Navy)
             Text(car.type,color=Green,fontWeight=FontWeight.SemiBold)
-            Spacer(Modifier.height(15.dp));Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){Label(Icons.Default.People,car.seats);Label(Icons.Default.Settings,car.transmission);Label(Icons.Default.DoorFront,"4 doors")}
+            Spacer(Modifier.height(15.dp));Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){Label(Icons.Default.People,car.seats);Label(Icons.Default.Settings,car.transmission);Label(Icons.Default.Info,"4 doors")}
             Spacer(Modifier.height(22.dp));Text("Rental details",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
             Text("Daily rate: ${car.price}. Final price and availability are confirmed by the rental provider.",Modifier.padding(top=8.dp),color=Color.DarkGray)
         }
