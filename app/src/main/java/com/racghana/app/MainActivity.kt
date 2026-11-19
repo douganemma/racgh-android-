@@ -361,7 +361,7 @@ fun CarCard(car: CarItem, onClick: () -> Unit) {
             Text(car.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Navy)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Label(Icons.Default.People, liveCar.seats); Label(Icons.Default.Settings, liveCar.transmission)
+                Label(Icons.Default.People, car.seats); Label(Icons.Default.Settings, car.transmission)
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -458,18 +458,18 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
             Text("Vehicle details", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Navy)
         }
         Column(Modifier.weight(1f).padding(20.dp)) {
-            Box(Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.DirectionsCar, null, tint = Color.Gray, modifier = Modifier.size(90.dp))
-                if (car.image.isNotBlank()) AsyncImage(model = imageUrl(car.image), contentDescription = car.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(18.dp))) {
+                CarSlideshow(liveCar.images.ifEmpty { listOf(liveCar.image) }, liveCar.name, Modifier.fillMaxSize())
             }
             Spacer(Modifier.height(18.dp))
             Text(liveCar.name, fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Navy)
             Text(liveCar.type, color = Green, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(15.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) { Label(Icons.Default.People, car.seats); Label(Icons.Default.Settings, car.transmission) }
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) { Label(Icons.Default.People, liveCar.seats); Label(Icons.Default.Settings, liveCar.transmission) }
             Spacer(Modifier.height(22.dp))
             Text("Rental details", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Navy)
-            Text("Daily rate: ${liveCar.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)\n            if (liveCar.description.isNotBlank()) Text(liveCar.description, Modifier.padding(top = 12.dp), color = Color.DarkGray)
+            Text("Daily rate: ${liveCar.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)
+            if (liveCar.description.isNotBlank()) Text(liveCar.description, Modifier.padding(top = 12.dp), color = Color.DarkGray)
             Text(detailMessage, Modifier.padding(top = 14.dp), color = Color.Gray, fontSize = 13.sp)
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
