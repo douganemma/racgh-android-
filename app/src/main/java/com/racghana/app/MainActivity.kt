@@ -166,7 +166,7 @@ fun RaCApp() {
                     onCar = { selected = it },
                     modifier = Modifier.padding(padding)
                 )
-                tab == "Bookings" -> BookingScreen(token, modifier = Modifier.padding(padding))
+                tab == "Bookings" -> BookingScreen(token, onSignIn = { tab = "Profile" }, modifier = Modifier.padding(padding))
                 else -> ProfileScreen(
                     token = token,
                     authMessage = authMessage,
@@ -200,7 +200,7 @@ fun RaCApp() {
                             } finally { loading = false }
                         }
                     },
-                    onRegister = { first, last, email, location, password ->
+                    onRegister = { first, last, phone, email, password ->
                         if (listOf(first, last, email, location, password).any { it.isBlank() }) {
                             authMessage = "Complete all registration fields."
                         } else scope.launch {
@@ -209,7 +209,7 @@ fun RaCApp() {
                             try {
                                 val result = RacApi.post("auth/register", mapOf(
                                     "first_name" to first.trim(), "last_name" to last.trim(),
-                                    "email" to email.trim(), "location" to location.trim(), "password" to password
+                                    "phone" to phone.trim(), "email" to email.trim(), "password" to password
                                 ))
                                 val root = result.json()
                                 val body = RacApi.unwrap(result)
@@ -244,6 +244,28 @@ fun RaCApp() {
     }
 }
 
+private fun firstImage(obj: JSONObject): String {
+    val keys = listOf("image", "thumbnail", "image_url", "banner", "featured_image", "cover", "thumb", "image_path", "photo")
+    for (key in keys) {
+        when (val value = obj.opt(key)) {
+            is String -> if (value.isNotBlank()) return value
+            is JSONObject -> {
+                val nested = RacApi.firstText(value, "url", "path", "src", "full", "large", "original")
+                if (nested.isNotBlank()) return nested
+            }
+            is org.json.JSONArray -> if (value.length() > 0) {
+                val first = value.opt(0)
+                if (first is String && first.isNotBlank()) return first
+                if (first is JSONObject) {
+                    val nested = RacApi.firstText(first, "url", "path", "src", "full", "large", "original")
+                    if (nested.isNotBlank()) return nested
+                }
+            }
+        }
+    }
+    return ""
+}
+
 private fun parseCar(obj: JSONObject): CarItem? {
     val id = RacApi.firstText(obj, "id", "slug", "objectID")
     val name = RacApi.firstText(obj, "title", "name", "car_name", "vehicle_name")
@@ -260,7 +282,7 @@ private fun parseCar(obj: JSONObject): CarItem? {
         seats = RacApi.firstText(obj, "seats", "number_of_seats", "passengers").ifBlank { "Seats vary" },
         transmission = RacApi.firstText(obj, "transmission", "gear").ifBlank { "Ask provider" },
         price = price,
-        image = RacApi.firstText(obj, "image", "thumbnail", "image_url", "banner")
+        image = firstImage(obj)
     )
 }
 
@@ -422,7 +444,7 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
 }
 
 @Composable
-fun BookingScreen(token: String?, modifier: Modifier = Modifier) {
+fun BookingScreen(token: String?, onSignIn: () -> Unit, modifier: Modifier = Modifier) {
     var bookings by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var status by remember { mutableStateOf(if (token.isNullOrBlank()) "Sign in to see your booking history." else "Loading your booking history…") }
     LaunchedEffect(token) {
@@ -437,6 +459,7 @@ fun BookingScreen(token: String?, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(20.dp)) {
         Text("Your bookings", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Navy)
         Text(status, Modifier.padding(top = 8.dp, bottom = 14.dp), color = Color.Gray)
+        if (token.isNullOrBlank()) Button(onClick = onSignIn, colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text("Sign in to continue") }
         bookings.forEach { booking ->
             Card(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
                 Column(Modifier.padding(16.dp)) {
@@ -454,7 +477,8 @@ fun ProfileScreen(token: String?, authMessage: String, loading: Boolean, onLogin
     var password by remember { mutableStateOf("") }
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var acceptedTerms by remember { mutableStateOf(false) }
     var registering by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Default.Person, null, tint = Green, modifier = Modifier.size(60.dp))
@@ -472,10 +496,14 @@ fun ProfileScreen(token: String?, authMessage: String, loading: Boolean, onLogin
             if (registering) {
                 OutlinedTextField(firstName, { firstName = it }, Modifier.fillMaxWidth(), label = { Text("First name") }, singleLine = true)
                 OutlinedTextField(lastName, { lastName = it }, Modifier.fillMaxWidth(), label = { Text("Last name") }, singleLine = true)
-                OutlinedTextField(location, { location = it }, Modifier.fillMaxWidth(), label = { Text("Location / city") }, singleLine = true)
+                OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text("Phone number") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
+                    Text("I accept the Terms and Privacy Policy", fontSize = 12.sp, color = Color.Gray)
+                }
             }
             Button(onClick = {
-                if (registering) onRegister(firstName, lastName, email, location, password) else onLogin(email.trim(), password)
+                if (registering) onRegister(firstName, lastName, if (acceptedTerms) phone else "", email, password) else onLogin(email.trim(), password)
             }, enabled = !loading, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
                 Text(if (loading) "Please wait…" else if (registering) "Create account" else "Sign in")
             }
