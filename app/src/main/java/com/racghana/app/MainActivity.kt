@@ -27,9 +27,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 private val Navy = Color(0xFF10243A)
 private val Green = Color(0xFF0D8A68)
 private val Canvas = Color(0xFFF5F7F8)
-private data class Car(val name:String,val type:String,val seats:String,val transmission:String,val price:String,val image:String)
+data class Car(val name:String,val type:String,val seats:String,val transmission:String,val price:String,val image:String)
 private val cars = listOf(
-    Car("Toyota Land Cruiser Prado","SUV · Takoradi","7 seats","Automatic","GH₵ 1,200 / day","https://images.unsplash.com/photo-151 SUV"),
+    Car("Toyota Land Cruiser Prado","SUV · Takoradi","7 seats","Automatic","GH₵ 1,200 / day",""),
     Car("Nissan Navara Pickup","Pickup · Takoradi","4 seats","Manual","GH₵ 1,100 / day",""),
     Car("Toyota Hiace Bus","Van · Takoradi","14 seats","Manual","GH₵ 1,600 / day",""),
     Car("Toyota Hilux Pick-up (2017)","Pickup · Takoradi","5 seats","Manual","GH₵ 1,000 / day","")
@@ -79,8 +79,7 @@ fun HomeScreen(modifier:Modifier,onCar:(Car)->Unit,onExplore:()->Unit) {
                     Text("Car rental made easy",color=Color.White.copy(.8f),fontSize=12.sp)
                 }
                 Spacer(Modifier.height(30.dp))
-                Text("Go anywhere
-with RaC.",fontSize=34.sp,lineHeight=39.sp,fontWeight=FontWeight.Bold,color=Color.White)
+                Text("Go anywhere\\nwith RaC.",fontSize=34.sp,lineHeight=39.sp,fontWeight=FontWeight.Bold,color=Color.White)
                 Spacer(Modifier.height(8.dp))
                 Text("Find the right ride for every journey.",color=Color.White.copy(.8f),fontSize=15.sp)
                 Spacer(Modifier.height(22.dp))
