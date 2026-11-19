@@ -25,8 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 
 private val Navy = Color(0xFF10243A)
@@ -67,21 +65,17 @@ fun RaCApp() {
     suspend fun loadInitial() {
         loading = true
         try {
-            // Load the website settings and payment methods alongside the homepage and live car search.
-            val responses = kotlinx.coroutines.coroutineScope {
-                listOf(
-                    async { RacApi.get("configs") },
-                    async { RacApi.get("gateways") },
-                    async { RacApi.get("home-page") },
-                    async { RacApi.get("car/search") }
-                ).map { it.await() }
-            }
-            configLoaded = responses[0].status in 200..299
-            gateways = RacApi.rows(responses[1]).size
-            val liveCars = RacApi.rows(responses[3]).mapNotNull { parseCar(it) }
+            // Load each endpoint sequentially to keep coroutine usage simple and reliable.
+            val configsResult = RacApi.get("configs")
+            val gatewaysResult = RacApi.get("gateways")
+            val homeResult = RacApi.get("home-page")
+            val searchResult = RacApi.get("car/search")
+            configLoaded = configsResult.status in 200..299
+            gateways = RacApi.rows(gatewaysResult).size
+            val liveCars = RacApi.rows(searchResult).mapNotNull { parseCar(it) }
             cars = liveCars
             message = if (liveCars.isEmpty()) {
-                "No vehicles were returned by the car search service (HTTP ${responses[3].status}). Pull to refresh or try again."
+                "No vehicles were returned by the car search service (HTTP ${searchResult.status}). Pull to refresh or try again."
             } else {
                 "${liveCars.size} vehicles loaded from RaC Ghana."
             }
@@ -178,7 +172,7 @@ fun RaCApp() {
                     },
                     onLogout = {
                         scope.launch {
-                            runCatching { RacApi.post("auth/logout", emptyMap(), token) }
+                            runCatching { RacApi.post("auth/logout", emptyMap<String, String>(), token) }
                             token = null
                             prefs.edit().remove("token").apply()
                         }
