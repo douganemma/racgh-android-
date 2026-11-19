@@ -398,6 +398,12 @@ fun ExploreScreen(cars: List<CarItem>, loading: Boolean, onRefresh: () -> Unit, 
 fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modifier) {
     var detailMessage by remember { mutableStateOf("Tap below to load the latest vehicle information and availability.") }
     var checking by remember { mutableStateOf(false) }
+    var sendingEnquiry by remember { mutableStateOf(false) }
+    var showEnquiry by remember { mutableStateOf(false) }
+    var enquiryName by remember { mutableStateOf("") }
+    var enquiryEmail by remember { mutableStateOf("") }
+    var enquiryPhone by remember { mutableStateOf("") }
+    var enquiryNote by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     Column(modifier.fillMaxSize().background(Canvas)) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -419,24 +425,73 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
             Text("Daily rate: ${car.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)
             Text(detailMessage, Modifier.padding(top = 14.dp), color = Color.Gray, fontSize = 13.sp)
         }
-        Button(onClick = {
-            scope.launch {
-                checking = true
-                detailMessage = "Checking RaC Ghana…"
-                try {
-                    val detail = RacApi.get("car/detail/${car.id}")
-                    val availability = RacApi.get("car/availability/${car.id}")
-                    detailMessage = when {
-                        detail.status !in 200..299 -> "Vehicle detail request returned HTTP ${detail.status}. ${RacApi.firstText(detail.json(), "message", "error")}".trim()
-                        availability.status in 200..299 -> "Vehicle details and availability refreshed successfully."
-                        else -> "Details loaded. Availability returned HTTP ${availability.status}."
-                    }
-                } catch (e: Exception) {
-                    detailMessage = "Could not load details: ${e.localizedMessage ?: "Connection problem."}"
-                } finally { checking = false }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Button(onClick = { showEnquiry = true }, enabled = !sendingEnquiry, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                Text(if (sendingEnquiry) "Sending enquiry…" else "Enquire about this car")
             }
-        }, enabled = !checking, modifier = Modifier.fillMaxWidth().padding(20.dp).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
-            Text(if (checking) "Checking…" else "Check live details & availability")
+            TextButton(onClick = {
+                scope.launch {
+                    checking = true
+                    detailMessage = "Checking RaC Ghana…"
+                    try {
+                        val detail = RacApi.get("car/detail/${car.id}")
+                        val availability = RacApi.get("car/availability/${car.id}")
+                        detailMessage = when {
+                            detail.status !in 200..299 -> "Vehicle detail request returned HTTP ${detail.status}. ${RacApi.errorMessage(detail.json())}".trim()
+                            availability.status in 200..299 -> "Vehicle details and availability refreshed successfully."
+                            else -> "Details loaded. Availability returned HTTP ${availability.status}."
+                        }
+                    } catch (e: Exception) {
+                        detailMessage = "Could not load details: ${e.localizedMessage ?: "Connection problem."}"
+                    } finally { checking = false }
+                }
+            }, enabled = !checking, modifier = Modifier.fillMaxWidth()) {
+                Text(if (checking) "Checking…" else "Check live details & availability")
+            }
+        }
+        if (showEnquiry) {
+            AlertDialog(
+                onDismissRequest = { if (!sendingEnquiry) showEnquiry = false },
+                title = { Text("Enquire about ${car.name}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(enquiryName, { enquiryName = it }, label = { Text("Full name") }, singleLine = true)
+                        OutlinedTextField(enquiryEmail, { enquiryEmail = it }, label = { Text("Email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+                        OutlinedTextField(enquiryPhone, { enquiryPhone = it }, label = { Text("Phone") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                        OutlinedTextField(enquiryNote, { enquiryNote = it }, label = { Text("Message / dates / pickup location") }, minLines = 2)
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !sendingEnquiry, onClick = {
+                        if (enquiryName.isBlank() || enquiryEmail.isBlank()) {
+                            detailMessage = "Please enter your name and email to send an enquiry."
+                        } else scope.launch {
+                            sendingEnquiry = true
+                            detailMessage = "Sending your enquiry to RaC Ghana…"
+                            try {
+                                val result = RacApi.post("booking/addEnquiry", mapOf(
+                                    "service_id" to car.id,
+                                    "service_type" to "car",
+                                    "name" to enquiryName.trim(),
+                                    "email" to enquiryEmail.trim(),
+                                    "phone" to enquiryPhone.trim(),
+                                    "note" to enquiryNote.trim()
+                                ))
+                                val response = result.json()
+                                if (result.status in 200..299) {
+                                    detailMessage = RacApi.errorMessage(response).ifBlank { "Your enquiry was sent. The vehicle provider must confirm availability and price." }
+                                    showEnquiry = false
+                                } else {
+                                    detailMessage = RacApi.errorMessage(response).ifBlank { "Enquiry could not be sent (HTTP ${result.status})." }
+                                }
+                            } catch (e: Exception) {
+                                detailMessage = "Enquiry failed: ${e.localizedMessage ?: "Connection problem."}"
+                            } finally { sendingEnquiry = false }
+                        }
+                    }) { Text(if (sendingEnquiry) "Sending…" else "Send enquiry") }
+                },
+                dismissButton = { TextButton(enabled = !sendingEnquiry, onClick = { showEnquiry = false }) { Text("Cancel") } }
+            )
         }
     }
 }
