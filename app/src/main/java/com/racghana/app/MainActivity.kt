@@ -437,7 +437,7 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
                     detailMessage = "Could not load details: ${e.localizedMessage ?: "Connection problem."}"
                 } finally { checking = false }
             }
-        }, enabled = !checking, Modifier.fillMaxWidth().padding(20.dp).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+        }, enabled = !checking, modifier = Modifier.fillMaxWidth().padding(20.dp).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
             Text(if (checking) "Checking…" else "Check live details & availability")
         }
     }
@@ -504,7 +504,7 @@ fun ProfileScreen(token: String?, authMessage: String, loading: Boolean, onLogin
             }
             Button(onClick = {
                 if (registering) onRegister(firstName, lastName, if (acceptedTerms) phone else "", email, password) else onLogin(email.trim(), password)
-            }, enabled = !loading, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+            }, enabled = !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
                 Text(if (loading) "Please wait…" else if (registering) "Create account" else "Sign in")
             }
             TextButton(onClick = { registering = !registering }) {
