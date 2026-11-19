@@ -42,7 +42,9 @@ data class CarItem(
     val seats: String,
     val transmission: String,
     val price: String,
-    val image: String
+    val image: String,
+    val images: List<String> = emptyList(),
+    val description: String = ""
 )
 
 private fun imageUrl(value: String): String {
@@ -242,26 +244,21 @@ fun RaCApp() {
     }
 }
 
-private fun firstImage(obj: JSONObject): String {
-    val keys = listOf("image", "thumbnail", "image_url", "banner", "featured_image", "cover", "thumb", "image_path", "photo")
-    for (key in keys) {
-        when (val value = obj.opt(key)) {
-            is String -> if (value.isNotBlank()) return value
+private fun imageList(obj: JSONObject): List<String> {
+    val keys = listOf("gallery", "images", "all_images", "image", "thumbnail", "image_url", "banner", "featured_image", "cover", "thumb", "image_path", "photo")
+    val found = mutableListOf<String>()
+    fun add(value: Any?) {
+        when (value) {
+            is String -> if (value.isNotBlank()) found.add(value.trim())
             is JSONObject -> {
-                val nested = RacApi.firstText(value, "url", "path", "src", "full", "large", "original")
-                if (nested.isNotBlank()) return nested
+                val nested = RacApi.firstText(value, "url", "path", "src", "full", "large", "original", "image")
+                if (nested.isNotBlank()) found.add(nested)
             }
-            is org.json.JSONArray -> if (value.length() > 0) {
-                val first = value.opt(0)
-                if (first is String && first.isNotBlank()) return first
-                if (first is JSONObject) {
-                    val nested = RacApi.firstText(first, "url", "path", "src", "full", "large", "original")
-                    if (nested.isNotBlank()) return nested
-                }
-            }
+            is org.json.JSONArray -> for (i in 0 until value.length()) add(value.opt(i))
         }
     }
-    return ""
+    for (key in keys) add(obj.opt(key))
+    return found.distinct().take(12)
 }
 
 private fun parseCar(obj: JSONObject): CarItem? {
@@ -280,7 +277,9 @@ private fun parseCar(obj: JSONObject): CarItem? {
         seats = RacApi.firstText(obj, "seats", "number_of_seats", "passengers").ifBlank { "Seats vary" },
         transmission = RacApi.firstText(obj, "transmission", "gear").ifBlank { "Ask provider" },
         price = price,
-        image = firstImage(obj)
+        image = imageList(obj).firstOrNull().orEmpty(),
+        images = imageList(obj),
+        description = RacApi.firstText(obj, "content", "description", "overview", "about")
     )
 }
 
@@ -352,7 +351,7 @@ fun CarCard(car: CarItem, onClick: () -> Unit) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).clickable(onClick = onClick)) {
         Box(Modifier.fillMaxWidth().height(175.dp).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.DirectionsCar, null, tint = Color(0xFF9AAAB4), modifier = Modifier.size(65.dp))
-            if (car.image.isNotBlank()) AsyncImage(model = imageUrl(car.image), contentDescription = car.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (car.images.isNotEmpty() || car.image.isNotBlank()) CarSlideshow(car.images.ifEmpty { listOf(car.image) }, car.name, Modifier.fillMaxSize())
             Surface(Modifier.align(Alignment.TopStart).padding(12.dp), color = Green, shape = RoundedCornerShape(6.dp)) {
                 Text(" LIVE LISTING ", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
@@ -362,7 +361,7 @@ fun CarCard(car: CarItem, onClick: () -> Unit) {
             Text(car.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Navy)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Label(Icons.Default.People, car.seats); Label(Icons.Default.Settings, car.transmission)
+                Label(Icons.Default.People, liveCar.seats); Label(Icons.Default.Settings, liveCar.transmission)
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -370,6 +369,36 @@ fun CarCard(car: CarItem, onClick: () -> Unit) {
                 Spacer(Modifier.weight(1f)); Text("View details  →", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
+    }
+}
+
+@Composable
+fun CarSlideshow(images: List<String>, title: String, modifier: Modifier = Modifier) {
+    val photos = images.filter { it.isNotBlank() }.distinct()
+    var index by remember(photos) { mutableIntStateOf(0) }
+    LaunchedEffect(photos) {
+        if (photos.size > 1) while (true) {
+            kotlinx.coroutines.delay(3500)
+            index = (index + 1) % photos.size
+        }
+    }
+    Box(modifier.background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
+        if (photos.isNotEmpty()) {
+            AsyncImage(model = imageUrl(photos[index.coerceIn(0, photos.lastIndex)]), contentDescription = title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (photos.size > 1) {
+                Row(Modifier.align(Alignment.BottomCenter).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    photos.forEachIndexed { i, _ ->
+                        Box(Modifier.size(if (i == index) 9.dp else 7.dp).clip(RoundedCornerShape(50)).background(if (i == index) Color.White else Color.White.copy(.5f)))
+                    }
+                }
+                IconButton(onClick = { index = (index - 1 + photos.size) % photos.size }, modifier = Modifier.align(Alignment.CenterStart)) {
+                    Icon(Icons.Default.ChevronLeft, "Previous photo", tint = Color.White)
+                }
+                IconButton(onClick = { index = (index + 1) % photos.size }, modifier = Modifier.align(Alignment.CenterEnd)) {
+                    Icon(Icons.Default.ChevronRight, "Next photo", tint = Color.White)
+                }
+            }
+        } else Icon(Icons.Default.DirectionsCar, null, tint = Color.Gray, modifier = Modifier.size(70.dp))
     }
 }
 
@@ -396,7 +425,8 @@ fun ExploreScreen(cars: List<CarItem>, loading: Boolean, onRefresh: () -> Unit, 
 
 @Composable
 fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    var detailMessage by remember { mutableStateOf("Tap below to load the latest vehicle information and availability.") }
+    var detailMessage by remember { mutableStateOf("Loading complete vehicle details…") }
+    var liveCar by remember(car) { mutableStateOf(car) }
     var checking by remember { mutableStateOf(false) }
     var sendingEnquiry by remember { mutableStateOf(false) }
     var showEnquiry by remember { mutableStateOf(false) }
@@ -405,6 +435,23 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
     var enquiryPhone by remember { mutableStateOf("") }
     var enquiryNote by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(car.id) {
+        if (car.id.isNotBlank()) {
+            try {
+                val result = RacApi.get("car/detail/${car.id}")
+                if (result.status in 200..299) {
+                    val parsed = RacApi.detailObject(result)?.let { parseCar(it) }
+                    if (parsed != null) liveCar = parsed.copy(
+                        images = parsed.images.ifEmpty { car.images },
+                        image = parsed.image.ifBlank { car.image }
+                    )
+                    detailMessage = if (parsed != null) "Vehicle information updated from RaC Ghana." else "Showing available listing details. Some extra details were not returned."
+                } else detailMessage = "Showing listing details. Live detail endpoint returned HTTP ${result.status}."
+            } catch (e: Exception) {
+                detailMessage = "Showing listing details. Live update unavailable: ${e.localizedMessage ?: "connection problem"}"
+            }
+        } else detailMessage = "Vehicle reference is missing. Contact RaC Ghana for this listing."
+    }
     Column(modifier.fillMaxSize().background(Canvas)) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
@@ -416,13 +463,13 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
                 if (car.image.isNotBlank()) AsyncImage(model = imageUrl(car.image), contentDescription = car.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
             Spacer(Modifier.height(18.dp))
-            Text(car.name, fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Navy)
-            Text(car.type, color = Green, fontWeight = FontWeight.SemiBold)
+            Text(liveCar.name, fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Navy)
+            Text(liveCar.type, color = Green, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(15.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) { Label(Icons.Default.People, car.seats); Label(Icons.Default.Settings, car.transmission) }
             Spacer(Modifier.height(22.dp))
             Text("Rental details", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Navy)
-            Text("Daily rate: ${car.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)
+            Text("Daily rate: ${liveCar.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)\n            if (liveCar.description.isNotBlank()) Text(liveCar.description, Modifier.padding(top = 12.dp), color = Color.DarkGray)
             Text(detailMessage, Modifier.padding(top = 14.dp), color = Color.Gray, fontSize = 13.sp)
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -452,7 +499,7 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modi
         if (showEnquiry) {
             AlertDialog(
                 onDismissRequest = { if (!sendingEnquiry) showEnquiry = false },
-                title = { Text("Enquire about ${car.name}") },
+                title = { Text("Enquire about ${liveCar.name}") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(enquiryName, { enquiryName = it }, label = { Text("Full name") }, singleLine = true)
