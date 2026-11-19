@@ -182,8 +182,7 @@ fun RaCApp() {
                                 val root = result.json()
                                 val body = RacApi.unwrap(result)
                                 val nested = body.optJSONObject("user")
-                                val newToken = RacApi.firstText(body, "token", "access_token", "accessToken")
-                                    .ifBlank { RacApi.firstText(root, "token", "access_token", "accessToken") }
+                                val newToken = RacApi.deepText(root, "token", "access_token", "accessToken", "api_token")
                                 if (result.status in 200..299 && newToken.isNotBlank()) {
                                     token = newToken
                                     prefs.edit().putString("token", newToken).apply()
@@ -209,19 +208,18 @@ fun RaCApp() {
                             try {
                                 val result = RacApi.post("auth/register", mapOf(
                                     "first_name" to first.trim(), "last_name" to last.trim(),
-                                    "phone" to phone.trim(), "email" to email.trim(), "password" to password
+                                    "phone" to phone.trim(), "email" to email.trim(), "password" to password,
+                                    "password_confirmation" to password
                                 ))
                                 val root = result.json()
                                 val body = RacApi.unwrap(result)
-                                val newToken = RacApi.firstText(body, "token", "access_token", "accessToken")
-                                    .ifBlank { RacApi.firstText(root, "token", "access_token", "accessToken") }
+                                val newToken = RacApi.deepText(root, "token", "access_token", "accessToken", "api_token")
                                 if (result.status in 200..299 && newToken.isNotBlank()) {
                                     token = newToken
                                     prefs.edit().putString("token", newToken).apply()
                                     authMessage = "Account created successfully."
                                 } else {
-                                    authMessage = RacApi.firstText(root, "message", "error")
-                                        .ifBlank { RacApi.firstText(body, "message", "error") }
+                                    authMessage = RacApi.errorMessage(root)
                                         .ifBlank { "Registration failed (HTTP ${result.status})." }
                                 }
                             } catch (e: Exception) {
@@ -501,10 +499,11 @@ fun ProfileScreen(token: String?, authMessage: String, loading: Boolean, onLogin
                     Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
                     Text("I accept the Terms and Privacy Policy", fontSize = 12.sp, color = Color.Gray)
                 }
+                if (!acceptedTerms) Text("Accept the Terms and Privacy Policy to create an account.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             }
             Button(onClick = {
-                if (registering) onRegister(firstName, lastName, if (acceptedTerms) phone else "", email, password) else onLogin(email.trim(), password)
-            }, enabled = !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                if (registering) onRegister(firstName, lastName, phone, email, password) else onLogin(email.trim(), password)
+            }, enabled = !loading && (!registering || acceptedTerms), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
                 Text(if (loading) "Please wait…" else if (registering) "Create account" else "Sign in")
             }
             TextButton(onClick = { registering = !registering }) {
