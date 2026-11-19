@@ -25,6 +25,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 
 private val Navy = Color(0xFF10243A)
@@ -351,7 +353,7 @@ fun BookingScreen(token: String?, modifier: Modifier = Modifier) {
     LaunchedEffect(token) {
         if (!token.isNullOrBlank()) {
             try {
-                val result = RacApi.get("user/booking-history", mapOf(""),)
+                val result = RacApi.get("user/booking-history", bearerToken = token)
                 bookings = RacApi.rows(result)
                 status = if (result.status in 200..299) "Your booking history" else "Booking history request failed (HTTP ${result.status})."
             } catch (e: Exception) { status = "Could not load bookings: ${e.localizedMessage}" }
