@@ -201,7 +201,7 @@ fun RaCApp() {
                         }
                     },
                     onRegister = { first, last, phone, email, password ->
-                        if (listOf(first, last, email, location, password).any { it.isBlank() }) {
+                        if (listOf(first, last, phone, email, password).any { it.isBlank() }) {
                             authMessage = "Complete all registration fields."
                         } else scope.launch {
                             loading = true
