@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -25,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
 import org.json.JSONObject
 
 private val Navy = Color(0xFF10243A)
@@ -40,6 +44,16 @@ data class CarItem(
     val price: String,
     val image: String
 )
+
+private fun imageUrl(value: String): String {
+    val clean = value.trim().replace("\\\\/", "/")
+    return when {
+        clean.startsWith("https://", true) || clean.startsWith("http://", true) -> clean
+        clean.startsWith("//") -> "https:$clean"
+        clean.startsWith("/") -> "https://racghana.com$clean"
+        else -> "https://racghana.com/${clean.trimStart('/')}"
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,6 +75,7 @@ fun RaCApp() {
     var message by remember { mutableStateOf("Connecting to RaC Ghana…") }
     var configLoaded by remember { mutableStateOf(false) }
     var gateways by remember { mutableStateOf(0) }
+    var authMessage by remember { mutableStateOf("") }
 
     suspend fun loadInitial() {
         loading = true
@@ -115,20 +130,6 @@ fun RaCApp() {
                 selected != null -> CarDetailsScreen(
                     car = selected!!,
                     onBack = { selected = null },
-                    onRefresh = {
-                        scope.launch {
-                            val id = selected!!.id
-                            val detail = runCatching { RacApi.get("car/detail/$id") }.getOrNull()
-                            val availability = runCatching { RacApi.get("car/availability/$id") }.getOrNull()
-                            message = when {
-                                detail == null -> "Vehicle detail request failed."
-                                detail.status !in 200..299 -> "Vehicle detail unavailable (HTTP ${detail.status})."
-                                availability == null -> "Details loaded; availability could not be checked."
-                                availability.status in 200..299 -> "Vehicle details and availability checked with RaC."
-                                else -> "Details loaded; availability returned HTTP ${availability.status}."
-                            }
-                        }
-                    },
                     modifier = Modifier.padding(padding)
                 )
                 tab == "Home" -> HomeScreen(
@@ -138,6 +139,24 @@ fun RaCApp() {
                     onRefresh = { scope.launch { loadInitial() } },
                     onCar = { selected = it },
                     onExplore = { tab = "Explore" },
+                    onSearch = { location, from, to ->
+                        scope.launch {
+                            loading = true
+                            tab = "Explore"
+                            try {
+                                val params = buildMap {
+                                    if (location.isNotBlank()) put("location", location.trim())
+                                    if (from.isNotBlank()) put("from", from.trim())
+                                    if (to.isNotBlank()) put("to", to.trim())
+                                }
+                                val result = RacApi.get("car/search", params)
+                                cars = RacApi.rows(result).mapNotNull { parseCar(it) }
+                                message = if (result.status in 200..299) "${cars.size} matching vehicles found." else "Search failed (HTTP ${result.status})."
+                            } catch (e: Exception) {
+                                message = "Search error: ${e.localizedMessage ?: "Please try again."}"
+                            } finally { loading = false }
+                        }
+                    },
                     modifier = Modifier.padding(padding)
                 )
                 tab == "Explore" -> ExploreScreen(
@@ -150,23 +169,63 @@ fun RaCApp() {
                 tab == "Bookings" -> BookingScreen(token, modifier = Modifier.padding(padding))
                 else -> ProfileScreen(
                     token = token,
+                    authMessage = authMessage,
+                    loading = loading,
                     onLogin = { email, password ->
-                        scope.launch {
+                        if (email.isBlank() || password.isBlank()) {
+                            authMessage = "Enter your email and password."
+                        } else scope.launch {
                             loading = true
+                            authMessage = "Signing in…"
                             try {
-                                val result = RacApi.post("auth/login", mapOf("email" to email, "password" to password))
+                                val result = RacApi.post("auth/login", mapOf("email" to email.trim(), "password" to password))
+                                val root = result.json()
                                 val body = RacApi.unwrap(result)
-                                val newToken = RacApi.firstText(body, "token", "access_token")
+                                val nested = body.optJSONObject("user")
+                                val newToken = RacApi.firstText(body, "token", "access_token", "accessToken")
+                                    .ifBlank { RacApi.firstText(root, "token", "access_token", "accessToken") }
                                 if (result.status in 200..299 && newToken.isNotBlank()) {
                                     token = newToken
                                     prefs.edit().putString("token", newToken).apply()
+                                    authMessage = "You are signed in."
                                 } else {
-                                    message = RacApi.firstText(result.json(), "message", "error").ifBlank {
-                                        "Login failed (HTTP ${result.status}). Check your details."
-                                    }
+                                    val errors = root.optJSONObject("errors")
+                                    authMessage = RacApi.firstText(root, "message", "error")
+                                        .ifBlank { RacApi.firstText(body, "message", "error") }
+                                        .ifBlank { errors?.toString().orEmpty() }
+                                        .ifBlank { "Sign in failed (HTTP ${result.status}). Check your details." }
                                 }
                             } catch (e: Exception) {
-                                message = "Login error: ${e.localizedMessage}"
+                                authMessage = "Sign in error: ${e.localizedMessage ?: "Connection problem."}"
+                            } finally { loading = false }
+                        }
+                    },
+                    onRegister = { first, last, email, location, password ->
+                        if (listOf(first, last, email, location, password).any { it.isBlank() }) {
+                            authMessage = "Complete all registration fields."
+                        } else scope.launch {
+                            loading = true
+                            authMessage = "Creating your account…"
+                            try {
+                                val result = RacApi.post("auth/register", mapOf(
+                                    "first_name" to first.trim(), "last_name" to last.trim(),
+                                    "email" to email.trim(), "location" to location.trim(), "password" to password
+                                ))
+                                val root = result.json()
+                                val body = RacApi.unwrap(result)
+                                val newToken = RacApi.firstText(body, "token", "access_token", "accessToken")
+                                    .ifBlank { RacApi.firstText(root, "token", "access_token", "accessToken") }
+                                if (result.status in 200..299 && newToken.isNotBlank()) {
+                                    token = newToken
+                                    prefs.edit().putString("token", newToken).apply()
+                                    authMessage = "Account created successfully."
+                                } else {
+                                    authMessage = RacApi.firstText(root, "message", "error")
+                                        .ifBlank { RacApi.firstText(body, "message", "error") }
+                                        .ifBlank { "Registration failed (HTTP ${result.status})." }
+                                }
+                            } catch (e: Exception) {
+                                authMessage = "Registration error: ${e.localizedMessage ?: "Connection problem."}"
                             } finally { loading = false }
                         }
                     },
@@ -174,6 +233,7 @@ fun RaCApp() {
                         scope.launch {
                             runCatching { RacApi.post("auth/logout", emptyMap<String, String>(), token) }
                             token = null
+                            authMessage = "You have signed out."
                             prefs.edit().remove("token").apply()
                         }
                     },
@@ -212,6 +272,7 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onCar: (CarItem) -> Unit,
     onExplore: () -> Unit,
+    onSearch: (String, String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -228,7 +289,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("Find the right ride for every journey.", color = Color.White.copy(.8f), fontSize = 15.sp)
                 Spacer(Modifier.height(22.dp))
-                SearchPanel(onExplore)
+                SearchPanel(onSearch)
             }
         }
         item {
@@ -248,7 +309,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun SearchPanel(onSearch: () -> Unit) {
+fun SearchPanel(onSearch: (String, String, String) -> Unit) {
     var location by remember { mutableStateOf("") }
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
@@ -260,7 +321,7 @@ fun SearchPanel(onSearch: () -> Unit) {
             OutlinedTextField(from, { from = it }, Modifier.weight(1f), label = { Text("Pick-up date") }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true)
             OutlinedTextField(to, { to = it }, Modifier.weight(1f), label = { Text("Return date") }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true)
         }
-        Button(onClick = onSearch, Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Green), shape = RoundedCornerShape(12.dp)) {
+        Button(onClick = { onSearch(location, from, to) }, Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Green), shape = RoundedCornerShape(12.dp)) {
             Icon(Icons.Default.Search, null); Spacer(Modifier.width(8.dp)); Text("Search cars", fontWeight = FontWeight.Bold)
         }
     }
@@ -269,8 +330,9 @@ fun SearchPanel(onSearch: () -> Unit) {
 @Composable
 fun CarCard(car: CarItem, onClick: () -> Unit) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).clickable(onClick = onClick)) {
-        Box(Modifier.fillMaxWidth().height(135.dp).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().height(175.dp).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.DirectionsCar, null, tint = Color(0xFF9AAAB4), modifier = Modifier.size(65.dp))
+            if (car.image.isNotBlank()) AsyncImage(model = imageUrl(car.image), contentDescription = car.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Surface(Modifier.align(Alignment.TopStart).padding(12.dp), color = Green, shape = RoundedCornerShape(6.dp)) {
                 Text(" LIVE LISTING ", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
@@ -313,16 +375,19 @@ fun ExploreScreen(cars: List<CarItem>, loading: Boolean, onRefresh: () -> Unit, 
 }
 
 @Composable
-fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, onRefresh: () -> Unit, modifier: Modifier = Modifier) {
-    var detailMessage by remember { mutableStateOf("Vehicle details are loaded from the live search result. Tap below to check the full detail and availability endpoints.") }
+fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    var detailMessage by remember { mutableStateOf("Tap below to load the latest vehicle information and availability.") }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Column(modifier.fillMaxSize().background(Canvas)) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
             Text("Vehicle details", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Navy)
         }
         Column(Modifier.weight(1f).padding(20.dp)) {
-            Box(Modifier.fillMaxWidth().height(210.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE7ECEF)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.DirectionsCar, null, tint = Color.Gray, modifier = Modifier.size(90.dp))
+                if (car.image.isNotBlank()) AsyncImage(model = imageUrl(car.image), contentDescription = car.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
             Spacer(Modifier.height(18.dp))
             Text(car.name, fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Navy)
@@ -334,8 +399,24 @@ fun CarDetailsScreen(car: CarItem, onBack: () -> Unit, onRefresh: () -> Unit, mo
             Text("Daily rate: ${car.price}. Confirm final price, terms and vehicle availability with the provider.", Modifier.padding(top = 8.dp), color = Color.DarkGray)
             Text(detailMessage, Modifier.padding(top = 14.dp), color = Color.Gray, fontSize = 13.sp)
         }
-        Button(onClick = onRefresh, Modifier.fillMaxWidth().padding(20.dp).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
-            Text("Check live details & availability")
+        Button(onClick = {
+            scope.launch {
+                checking = true
+                detailMessage = "Checking RaC Ghana…"
+                try {
+                    val detail = RacApi.get("car/detail/${car.id}")
+                    val availability = RacApi.get("car/availability/${car.id}")
+                    detailMessage = when {
+                        detail.status !in 200..299 -> "Vehicle detail request returned HTTP ${detail.status}. ${RacApi.firstText(detail.json(), "message", "error")}".trim()
+                        availability.status in 200..299 -> "Vehicle details and availability refreshed successfully."
+                        else -> "Details loaded. Availability returned HTTP ${availability.status}."
+                    }
+                } catch (e: Exception) {
+                    detailMessage = "Could not load details: ${e.localizedMessage ?: "Connection problem."}"
+                } finally { checking = false }
+            }
+        }, enabled = !checking, Modifier.fillMaxWidth().padding(20.dp).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+            Text(if (checking) "Checking…" else "Check live details & availability")
         }
     }
 }
@@ -368,10 +449,14 @@ fun BookingScreen(token: String?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ProfileScreen(token: String?, onLogin: (String, String) -> Unit, onLogout: () -> Unit, modifier: Modifier = Modifier) {
+fun ProfileScreen(token: String?, authMessage: String, loading: Boolean, onLogin: (String, String) -> Unit, onRegister: (String, String, String, String, String) -> Unit, onLogout: () -> Unit, modifier: Modifier = Modifier) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var registering by remember { mutableStateOf(false) }
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Default.Person, null, tint = Green, modifier = Modifier.size(60.dp))
         Spacer(Modifier.height(16.dp))
         Text("RaC Ghana account", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Navy)
@@ -384,8 +469,21 @@ fun ProfileScreen(token: String?, onLogin: (String, String) -> Unit, onLogout: (
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
             Spacer(Modifier.height(12.dp))
-            Button(onClick = { onLogin(email.trim(), password) }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text("Sign in") }
+            if (registering) {
+                OutlinedTextField(firstName, { firstName = it }, Modifier.fillMaxWidth(), label = { Text("First name") }, singleLine = true)
+                OutlinedTextField(lastName, { lastName = it }, Modifier.fillMaxWidth(), label = { Text("Last name") }, singleLine = true)
+                OutlinedTextField(location, { location = it }, Modifier.fillMaxWidth(), label = { Text("Location / city") }, singleLine = true)
+            }
+            Button(onClick = {
+                if (registering) onRegister(firstName, lastName, email, location, password) else onLogin(email.trim(), password)
+            }, enabled = !loading, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                Text(if (loading) "Please wait…" else if (registering) "Create account" else "Sign in")
+            }
+            TextButton(onClick = { registering = !registering }) {
+                Text(if (registering) "Already have an account? Sign in" else "New to RaC? Create an account")
+            }
         }
+        if (authMessage.isNotBlank()) Text(authMessage, Modifier.fillMaxWidth().padding(top = 14.dp), color = if (authMessage.contains("failed", true) || authMessage.contains("error", true)) MaterialTheme.colorScheme.error else Green, fontSize = 13.sp)
     }
 }
 
