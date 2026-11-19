@@ -58,6 +58,50 @@ object RacApi {
         if (root.has("id") || root.has("title") || root.has("name")) return listOf(root)
         return emptyList()
     }
+    fun deepText(obj: JSONObject, vararg keys: String): String {
+        val wanted = keys.toSet()
+        fun scan(value: Any?): String {
+            when (value) {
+                is JSONObject -> {
+                    for (key in wanted) {
+                        val candidate = firstText(value, key)
+                        if (candidate.isNotBlank()) return candidate
+                    }
+                    val iterator = value.keys()
+                    while (iterator.hasNext()) {
+                        val found = scan(value.opt(iterator.next()))
+                        if (found.isNotBlank()) return found
+                    }
+                }
+                is JSONArray -> for (i in 0 until value.length()) {
+                    val found = scan(value.opt(i))
+                    if (found.isNotBlank()) return found
+                }
+            }
+            return ""
+        }
+        return scan(obj)
+    }
+
+    fun errorMessage(obj: JSONObject): String {
+        val direct = deepText(obj, "message", "error", "detail", "description")
+        if (direct.isNotBlank()) return direct
+        val errors = obj.optJSONObject("errors") ?: return ""
+        val messages = mutableListOf<String>()
+        val iterator = errors.keys()
+        while (iterator.hasNext()) {
+            val key = iterator.next()
+            val value = errors.opt(key)
+            when (value) {
+                is JSONArray -> for (i in 0 until value.length()) {
+                    value.optString(i).takeIf { it.isNotBlank() }?.let { messages.add(it) }
+                }
+                else -> value?.toString()?.takeIf { it.isNotBlank() }?.let { messages.add(it) }
+            }
+        }
+        return messages.distinct().joinToString(" ")
+    }
+
     fun firstText(obj: JSONObject, vararg keys: String): String {
         for (key in keys) {
             val value = obj.opt(key)
